@@ -12,6 +12,12 @@
         "judge_sell_ids": [1]
     },
     {
+        "ticker": "159873",
+        "name": "医疗设备ETF",
+        "judge_buy_ids": [1,2],
+        "judge_sell_ids": [1]
+    },
+    {
         "ticker": "510880",
         "name": "红利ETF华泰柏瑞",
         "judge_buy_ids": [1,2],

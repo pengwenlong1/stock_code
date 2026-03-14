@@ -363,40 +363,74 @@ class ETFMonitor:
         return data
 
     def detect_divergence(self, data, type='top'):
-        """检测背离（顶背离或底背离）"""
+        """
+        检测背离（顶背离或底背离）
+        优化逻辑：增加 MACD DIF 辅助判断，并要求高点之间有一定的间隔和强度，避免将正常的震荡上涨误判为背离。
+        """
         if data is None or len(data) < 30:
             return False
         
         close = data['Close'].values
         rsi = data['RSI'].values
+        dif = data['MACD'].values # DIF
+        macd_hist = data['MACD_hist'].values # MACD 柱
         
-        # 寻找最近的两个高点/低点
+        # 寻找局部极值点 (增加窗口过滤，要求左右至少 N 个点更低/更高)
+        def find_extrema(values, is_max=True, window=5):
+            extrema = []
+            for i in range(window, len(values) - window):
+                if is_max:
+                    if all(values[i] > values[i-j] for j in range(1, window+1)) and \
+                       all(values[i] >= values[i+j] for j in range(1, window+1)):
+                        extrema.append(i)
+                else:
+                    if all(values[i] < values[i-j] for j in range(1, window+1)) and \
+                       all(values[i] <= values[i+j] for j in range(1, window+1)):
+                        extrema.append(i)
+            return extrema
+
         if type == 'top':
-            # 顶背离：价格创新高，RSI未创新高
-            # 找到最近的两个局部高点
-            peaks = []
-            for i in range(len(close) - 2, 1, -1):
-                if close[i] > close[i-1] and close[i] > close[i+1]:
-                    peaks.append(i)
-                    if len(peaks) == 2:
-                        break
-            
-            if len(peaks) == 2:
-                p1, p2 = peaks[1], peaks[0] # p1较早，p2较晚
-                if close[p2] > close[p1] and rsi[p2] < rsi[p1]:
+            # 顶背离：价格创新高，但 RSI 或 MACD DIF 未创新高
+            # 且 MACD 柱状图面积/高度通常在缩小
+            peaks = find_extrema(close, is_max=True, window=3)
+            if len(peaks) >= 2:
+                p1, p2 = peaks[-2], peaks[-1] # p1 较早，p2 较晚 (最近的两个高点)
+                
+                # 过滤高点过于接近的情况 (至少间隔 5 个周期)
+                if p2 - p1 < 5:
+                    return False
+                
+                # 价格确实在走高
+                price_increasing = close[p2] > close[p1]
+                # RSI 走低
+                rsi_decreasing = rsi[p2] < rsi[p1]
+                # MACD DIF 走低
+                dif_decreasing = dif[p2] < dif[p1]
+                
+                # 如果价格创新高，但 RSI 或 DIF 任意一个明显走低，且当前 MACD 柱没有强力爆发
+                # (如果当前 MACD 柱在强势增长，通常不判定为背离)
+                if price_increasing and (rsi_decreasing or dif_decreasing):
+                    # 额外检查：如果当前 DIF 正在强力上穿 0 轴或 MACD 柱在快速增长，则忽略背离
+                    if dif[p2] > 0 and macd_hist[p2] > macd_hist[p2-1] > 0:
+                        return False
                     return True
         else:
-            # 底背离：价格创新低，RSI未创新低
-            troughs = []
-            for i in range(len(close) - 2, 1, -1):
-                if close[i] < close[i-1] and close[i] < close[i+1]:
-                    troughs.append(i)
-                    if len(troughs) == 2:
-                        break
-            
-            if len(troughs) == 2:
-                t1, t2 = troughs[1], troughs[0] # t1较早，t2较晚
-                if close[t2] < close[t1] and rsi[t2] > rsi[t1]:
+            # 底背离：价格创新低，但 RSI 或 MACD DIF 未创新低
+            troughs = find_extrema(close, is_max=False, window=3)
+            if len(troughs) >= 2:
+                t1, t2 = troughs[-2], troughs[-1]
+                
+                if t2 - t1 < 5:
+                    return False
+                    
+                price_decreasing = close[t2] < close[t1]
+                rsi_increasing = rsi[t2] > rsi[t1]
+                dif_increasing = dif[t2] > dif[t1]
+                
+                if price_decreasing and (rsi_increasing or dif_increasing):
+                    # 如果 DIF 正在强力下穿 0 轴或 MACD 柱在快速下跌，则忽略底背离
+                    if dif[t2] < 0 and macd_hist[t2] < macd_hist[t2-1] < 0:
+                        return False
                     return True
         
         return False

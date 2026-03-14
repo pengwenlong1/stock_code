@@ -365,18 +365,17 @@ class ETFMonitor:
     def detect_divergence(self, data, type='top'):
         """
         检测背离（顶背离或底背离）
-        优化逻辑：增加 MACD DIF 辅助判断，并要求高点之间有一定的间隔和强度，避免将正常的震荡上涨误判为背离。
+        逻辑：仅根据 MACD DIF 进行判断。价格创新高/新低，但 DIF 未创新高/新低。
         """
         if data is None or len(data) < 30:
             return False
         
         close = data['Close'].values
-        rsi = data['RSI'].values
         dif = data['MACD'].values # DIF
         macd_hist = data['MACD_hist'].values # MACD 柱
         
         # 寻找局部极值点 (增加窗口过滤，要求左右至少 N 个点更低/更高)
-        def find_extrema(values, is_max=True, window=5):
+        def find_extrema(values, is_max=True, window=3):
             extrema = []
             for i in range(window, len(values) - window):
                 if is_max:
@@ -390,32 +389,23 @@ class ETFMonitor:
             return extrema
 
         if type == 'top':
-            # 顶背离：价格创新高，但 RSI 或 MACD DIF 未创新高
-            # 且 MACD 柱状图面积/高度通常在缩小
+            # 顶背离：价格创新高，但 MACD DIF 未创新高
             peaks = find_extrema(close, is_max=True, window=3)
             if len(peaks) >= 2:
-                p1, p2 = peaks[-2], peaks[-1] # p1 较早，p2 较晚 (最近的两个高点)
+                p1, p2 = peaks[-2], peaks[-1] # p1 较早，p2 较晚
                 
                 # 过滤高点过于接近的情况 (至少间隔 5 个周期)
                 if p2 - p1 < 5:
                     return False
                 
-                # 价格确实在走高
-                price_increasing = close[p2] > close[p1]
-                # RSI 走低
-                rsi_decreasing = rsi[p2] < rsi[p1]
-                # MACD DIF 走低
-                dif_decreasing = dif[p2] < dif[p1]
-                
-                # 如果价格创新高，但 RSI 或 DIF 任意一个明显走低，且当前 MACD 柱没有强力爆发
-                # (如果当前 MACD 柱在强势增长，通常不判定为背离)
-                if price_increasing and (rsi_decreasing or dif_decreasing):
+                # 价格创新高，但 DIF 未创新高
+                if close[p2] > close[p1] and dif[p2] < dif[p1]:
                     # 额外检查：如果当前 DIF 正在强力上穿 0 轴或 MACD 柱在快速增长，则忽略背离
                     if dif[p2] > 0 and macd_hist[p2] > macd_hist[p2-1] > 0:
                         return False
                     return True
         else:
-            # 底背离：价格创新低，但 RSI 或 MACD DIF 未创新低
+            # 底背离：价格创新低，但 MACD DIF 未创新低
             troughs = find_extrema(close, is_max=False, window=3)
             if len(troughs) >= 2:
                 t1, t2 = troughs[-2], troughs[-1]
@@ -423,11 +413,8 @@ class ETFMonitor:
                 if t2 - t1 < 5:
                     return False
                     
-                price_decreasing = close[t2] < close[t1]
-                rsi_increasing = rsi[t2] > rsi[t1]
-                dif_increasing = dif[t2] > dif[t1]
-                
-                if price_decreasing and (rsi_increasing or dif_increasing):
+                # 价格创新低，但 DIF 未创新低
+                if close[t2] < close[t1] and dif[t2] > dif[t1]:
                     # 如果 DIF 正在强力下穿 0 轴或 MACD 柱在快速下跌，则忽略底背离
                     if dif[t2] < 0 and macd_hist[t2] < macd_hist[t2-1] < 0:
                         return False
@@ -513,39 +500,40 @@ class ETFMonitor:
             min_daily_rsi = data_daily['RSI'].tail(3).min()
             min_weekly_rsi = data_weekly['RSI'].tail(3).min()
             
-            # 买入条件1 (架构 L17): 日线RSI<20，周线RSI<25
+            # 买入条件1 (保守型): 日线RSI<20且周线RSI<25
             if buy_id == 1:
                 if min_daily_rsi < 20 and min_weekly_rsi < 25:
-                    messages.append(f"【{stock.name}】买入信号(条件1): 最近3天内日线RSI({min_daily_rsi:.2f})<20且周线RSI({min_weekly_rsi:.2f})<25")
+                    messages.append(f"【{stock.name}】买入信号(条件1-保守): 触发[日线RSI({min_daily_rsi:.2f})<20 且 周线RSI({min_weekly_rsi:.2f})<25]")
             
-            # 买入条件2 (架构 L18-19): 日线RSI<25，周线RSI<30 或 日线底背离+120分钟金叉(3天内)
+            # 买入条件2 (标准型): 日线RSI<25且周线RSI<30 或 日线底背离+120分钟金叉
             elif buy_id == 2:
-                cond_a = min_daily_rsi < 25 and min_weekly_rsi < 30
-                cond_b = self.detect_divergence(data_daily, 'bottom') and self.is_golden_cross(data_120m, window=3)
-                if cond_a or cond_b:
-                    messages.append(f"【{stock.name}】买入信号(条件2): 最近3天内RSI超卖或出现底背离+120m金叉")
+                if min_daily_rsi < 25 and min_weekly_rsi < 30:
+                    messages.append(f"【{stock.name}】买入信号(条件2-标准): 触发[日线RSI({min_daily_rsi:.2f})<25 且 周线RSI({min_weekly_rsi:.2f})<30]")
+                elif self.detect_divergence(data_daily, 'bottom') and self.is_golden_cross(data_120m, window=3):
+                    messages.append(f"【{stock.name}】买入信号(条件2-标准): 触发[日线底背离 + 120分钟金叉]")
             
-            # 买入条件3 (架构 L20-21): 日线RSI<25，周线RSI<30 或 创业板/上证指数 日线RSI<25 或 日线底背离+120分钟金叉
+            # 买入条件3 (增强型): 条件2 或 核心指数RSI<25
             elif buy_id == 3:
-                cond_a = min_daily_rsi < 25 and min_weekly_rsi < 30
-                cond_b = self.detect_divergence(data_daily, 'bottom') and self.is_golden_cross(data_120m, window=3)
-                
-                # 检查指数低位 (最近3天内)
-                index_rsi_low = False
-                for idx_ticker in ['000001', '399006']:
-                    idx_data = self.calculate_indicators(self.get_stock_data(idx_ticker, 'daily'))
-                    if idx_data is not None and not idx_data.empty and 'RSI' in idx_data.columns:
-                        if idx_data['RSI'].tail(3).min() < 25:
-                            index_rsi_low = True
-                            break
-                
-                if cond_a or cond_b or index_rsi_low:
-                    messages.append(f"【{stock.name}】买入信号(条件3): 最近3天内RSI超卖、底背离或指数低位")
+                # 检查自身超卖
+                if min_daily_rsi < 25 and min_weekly_rsi < 30:
+                    messages.append(f"【{stock.name}】买入信号(条件3-增强): 触发[日线RSI({min_daily_rsi:.2f})<25 且 周线RSI({min_weekly_rsi:.2f})<30]")
+                # 检查自身底背离
+                elif self.detect_divergence(data_daily, 'bottom') and self.is_golden_cross(data_120m, window=3):
+                    messages.append(f"【{stock.name}】买入信号(条件3-增强): 触发[日线底背离 + 120分钟金叉]")
+                else:
+                    # 检查指数低位
+                    for idx_ticker, idx_name in [('000001', '上证指数'), ('399006', '创业板指')]:
+                        idx_data = self.calculate_indicators(self.get_stock_data(idx_ticker, 'daily'))
+                        if idx_data is not None and not idx_data.empty and 'RSI' in idx_data.columns:
+                            idx_min_rsi = idx_data['RSI'].tail(3).min()
+                            if idx_min_rsi < 25:
+                                messages.append(f"【{stock.name}】买入信号(条件3-增强): 触发[{idx_name}日线RSI({idx_min_rsi:.2f})<25]")
+                                break
             
-            # 买入条件4: 日线RSI<20，周线RSI<20
+            # 买入条件4 (极度超卖): 日线RSI<20且周线RSI<20
             elif buy_id == 4:
                 if min_daily_rsi < 20 and min_weekly_rsi < 20:
-                    messages.append(f"【{stock.name}】买入信号(条件4): 最近3天内日线RSI({min_daily_rsi:.2f})<20且周线RSI({min_weekly_rsi:.2f})<20")
+                    messages.append(f"【{stock.name}】买入信号(条件4-极度超卖): 触发[日线RSI({min_daily_rsi:.2f})<20 且 周线RSI({min_weekly_rsi:.2f})<20]")
 
         return "\n".join(messages) if messages else None
 
@@ -598,8 +586,8 @@ class ETFMonitor:
         
         return False
     
-    def monitor_loop(self, check_interval=1800):
-        """持续监控循环 (默认每30分钟检查并重载文件)"""
+    def monitor_loop(self, check_interval=43200):
+        """持续监控循环 (默认每12小时检查一次并重载文件)"""
         while True:
             self.load_stocks_from_file() # 每轮开始前检查并重新加载
             self.monitor()
@@ -618,5 +606,5 @@ if __name__ == '__main__':
         dingtalk_secret=dingtalk_secret
     )
     
-    # 启动监控循环 (默认每30分钟检查一次)
-    monitor.monitor_loop(check_interval=1800)
+    # 启动监控循环 (默认每12小时检查一次)
+    monitor.monitor_loop(check_interval=43200)

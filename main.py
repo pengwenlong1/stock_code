@@ -428,9 +428,8 @@ class ETFMonitor:
                 data_weekly = all_data.get('weekly')
                 data_daily = all_data.get('daily')
                 data_120m = all_data.get('120m')
-                data_60m = all_data.get('60m')
                 
-                if data_weekly is None or data_daily is None or data_120m is None or data_60m is None:
+                if data_weekly is None or data_daily is None or data_120m is None:
                     continue
 
                 # 最近3天的周线最大RSI
@@ -438,29 +437,30 @@ class ETFMonitor:
                 
                 # 1. 周线顶背离 + 120分钟死叉(3天内) -> 清仓
                 if self.detect_divergence(data_weekly, 'top') and self.is_death_cross(data_120m, window=3):
-                    messages.append(f"【{stock.name}】卖出信号(ID:1): 周线顶背离+最近3天内120m死叉，建议清仓")
+                    messages.append(f"【{stock.name}】卖出信号(条件1-清仓): 触发[周线顶背离 + 120分钟死叉]，建议清仓")
 
-                # 2. 120分钟/日线顶背离 + 120分钟死叉(3天内) -> 出 1/2
-                elif (self.detect_divergence(data_120m, 'top') or self.detect_divergence(data_daily, 'top')) and self.is_death_cross(data_120m, window=3):
-                    messages.append(f"【{stock.name}】卖出信号(ID:1): 120m/日线顶背离+最近3天内120m死叉，建议出1/2")
+                # 2. 日线顶背离 + 120分钟死叉(3天内) -> 出 1/2
+                elif self.detect_divergence(data_daily, 'top') and self.is_death_cross(data_120m, window=3):
+                    messages.append(f"【{stock.name}】卖出信号(条件1-减半): 触发[日线顶背离 + 120分钟死叉]，建议出1/2")
 
-                # 3. 60分钟顶背离 + 120分钟死叉(3天内) 或 日线SAR跌破(3天内)
-                # 检查最近3天是否有SAR跌破
-                is_sar_breakdown_recent = False
-                for i in range(1, 4):
-                    if len(data_daily) >= i+1:
-                        if data_daily['Close'].iloc[-i-1] > data_daily['SAR'].iloc[-i-1] and \
-                           data_daily['Close'].iloc[-i] < data_daily['SAR'].iloc[-i]:
-                            is_sar_breakdown_recent = True
-                            break
+                # 3. 日线SAR跌破(3天内) -> 阶梯式卖出
+                else:
+                    is_sar_breakdown_recent = False
+                    for i in range(1, 4):
+                        if len(data_daily) >= i+1:
+                            if data_daily['Close'].iloc[-i-1] > data_daily['SAR'].iloc[-i-1] and \
+                               data_daily['Close'].iloc[-i] < data_daily['SAR'].iloc[-i]:
+                                is_sar_breakdown_recent = True
+                                break
 
-                if (self.detect_divergence(data_60m, 'top') and self.is_death_cross(data_120m, window=3)) or is_sar_breakdown_recent:
-                    if max_weekly_rsi > 90:
-                        messages.append(f"【{stock.name}】卖出信号(ID:1): 60m顶背离+死叉或SAR跌破(3天内)，且周线RSI({max_weekly_rsi:.2f})>90，建议卖出所有")
-                    elif max_weekly_rsi > 85:
-                        messages.append(f"【{stock.name}】卖出信号(ID:1): 60m顶背离+死叉或SAR跌破(3天内)，且周线RSI({max_weekly_rsi:.2f})>85，建议卖出剩余1/2")
-                    elif max_weekly_rsi > 80:
-                        messages.append(f"【{stock.name}】卖出信号(ID:1): 60m顶背离+死叉或SAR跌破(3天内)，且周线RSI({max_weekly_rsi:.2f})>80，建议卖出1/3")
+                    if is_sar_breakdown_recent:
+                        trigger_reason = f"触发[日线SAR跌破]，当前周线RSI({max_weekly_rsi:.2f})"
+                        if max_weekly_rsi > 90:
+                            messages.append(f"【{stock.name}】卖出信号(条件1-阶梯): {trigger_reason} > 90，建议卖出所有")
+                        elif max_weekly_rsi > 85:
+                            messages.append(f"【{stock.name}】卖出信号(条件1-阶梯): {trigger_reason} > 85，建议卖出剩余1/2")
+                        elif max_weekly_rsi > 80:
+                            messages.append(f"【{stock.name}】卖出信号(条件1-阶梯): {trigger_reason} > 80，建议卖出1/3")
 
         return "\n".join(messages) if messages else None
 

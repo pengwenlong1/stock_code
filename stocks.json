@@ -1,0 +1,57 @@
+[
+    {
+        "ticker": "159928",
+        "name": "消费ETF",
+        "judge_buy_ids": [1, 2],
+        "judge_sell_ids": [1]
+    },
+    {
+        "ticker": "159647",
+        "name": "中药ETF",
+        "judge_buy_ids": [1,2],
+        "judge_sell_ids": [1]
+    },
+    {
+        "ticker": "510880",
+        "name": "红利ETF华泰柏瑞",
+        "judge_buy_ids": [1,2],
+        "judge_sell_ids": [1]
+    },
+    {
+        "ticker": "300661",
+        "name": "圣邦股份",
+        "judge_buy_ids": [3],
+        "judge_sell_ids": [1]
+    },
+    {
+        "ticker": "603501",
+        "name": "豪威集团",
+        "judge_buy_ids": [3],
+        "judge_sell_ids": [1]
+    },
+    {
+        "ticker": "002920",
+        "name": "德赛西威",
+        "judge_buy_ids": [3],
+        "judge_sell_ids": [1]
+    },
+    {
+        "ticker": "601166",
+        "name": "兴业银行",
+        "judge_buy_ids": [4],
+        "judge_sell_ids": [-1]
+    },
+    {
+        "ticker": "600887",
+        "name": "伊利股份",
+        "judge_buy_ids": [4],
+        "judge_sell_ids": [-1]
+    },
+    {
+        "ticker": "000895",
+        "name": "双汇发展",
+        "judge_buy_ids": [4],
+        "judge_sell_ids": [-1]
+    }
+
+]

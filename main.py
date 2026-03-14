@@ -579,7 +579,7 @@ if __name__ == '__main__':
     
     # 创建监控实例 (自动从 stocks.json 加载)
     monitor = ETFMonitor(
-        stocks_file='stocks.json',
+        stocks_file='config/stocks.json',
         dingtalk_webhook=dingtalk_webhook, 
         dingtalk_secret=dingtalk_secret
     )
